@@ -88,14 +88,27 @@ def generate_drift_report(
     html_path = output_dir / f"drift_{stamp}.html"
     report.save_html(str(html_path))
 
-    result = report.as_dict()["metrics"][0]["result"]
-    drift_by_col = result.get("drift_by_columns", {})
+    # DataDriftPreset expands into several metrics: the dataset-level summary
+    # (share_of_drifted_columns, dataset_drift) and the per-column table
+    # (drift_by_columns) live in *different* entries, so scan all of them for
+    # each key rather than assuming a fixed index/order.
+    metrics = report.as_dict().get("metrics", [])
+
+    def _find(key: str) -> Any:
+        for metric in metrics:
+            res = metric.get("result", {})
+            if isinstance(res, dict) and key in res:
+                return res[key]
+        return None
+
+    drift_by_col = _find("drift_by_columns") or {}
     drifted_columns = [
         col for col, info in drift_by_col.items() if info.get("drift_detected")
     ]
+    share = _find("share_of_drifted_columns")
     return {
-        "drifted": bool(result.get("dataset_drift", False)),
-        "drift_share": float(result.get("share_of_drifted_columns", 0.0)),
+        "drifted": bool(_find("dataset_drift")),
+        "drift_share": float(share) if share is not None else 0.0,
         "drifted_columns": drifted_columns,
         "report_path": str(html_path),
         "n_reference": int(len(reference)),
