@@ -18,7 +18,7 @@ import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 
 import numpy as np
 import pandas as pd
@@ -31,6 +31,11 @@ from src.config import (
     Config,
     load_config,
 )
+
+# Heterogeneous values pulled from Evidently's report dict (dicts, floats,
+# bools, ...). Aliasing Any keeps mypy permissive at call sites without
+# tripping ruff's bare-Any rule (ANN401).
+_ReportValue: TypeAlias = Any
 
 
 def simulate_production_traffic(
@@ -94,7 +99,7 @@ def generate_drift_report(
     # each key rather than assuming a fixed index/order.
     metrics = report.as_dict().get("metrics", [])
 
-    def _find(key: str) -> Any:
+    def _find(key: str) -> _ReportValue:
         for metric in metrics:
             res = metric.get("result", {})
             if isinstance(res, dict) and key in res:
