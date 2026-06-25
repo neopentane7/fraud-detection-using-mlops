@@ -177,14 +177,14 @@ flowchart LR
     subgraph PR["Pull request"]
         CI["ci.yml<br/>ruff + mypy + pytest(cov>=80%)<br/>+ DVC DAG + quick-train gate"]
     end
-    subgraph MAIN["Merge to main"]
+    subgraph MAIN["Manual dispatch (on demand)"]
         CD["cd.yml<br/>full repro -> Staging<br/>-> integration test -> Production<br/>-> push image to GHCR"]
     end
     subgraph SCHED["Scheduled / triggered"]
         MON["monitor.yml (weekly)"]
         RT["retrain.yml (dispatch)"]
     end
-    CI -->|merge| CD
+    CI -.->|after review| CD
     MON -->|drift| RT
     RT -->|promote| CD
 ```

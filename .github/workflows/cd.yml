@@ -1,8 +1,10 @@
 name: CD
 
+# Manual-only: the deploy path trains a model and bakes its artifacts into the
+# serving image, which requires the dataset + secrets + a DVC remote. It is run
+# on demand (and is a no-op without secrets) rather than on every push, so a
+# plain clone/push never triggers a build that has no model to ship.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

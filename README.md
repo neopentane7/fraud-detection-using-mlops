@@ -189,8 +189,10 @@ than missing real distribution shift in fraud.
 
 * **ci.yml** (PRs): ruff + mypy + pytest (coverage ≥ 80%), DVC DAG validation;
   with secrets, a quick train + `f1_fraud` gate + metrics PR comment.
-* **cd.yml** (merge to main): full `dvc repro` → register to Staging → build
+* **cd.yml** (manual dispatch): full `dvc repro` → register to Staging → build
   image → container integration test → promote to Production → push to GHCR.
+  On-demand (not on every push) since building a deployable image needs the
+  dataset + secrets + a DVC remote; a no-op without them.
 * **retrain.yml** (manual / drift dispatch): re-run from preprocess; promote
   only if the challenger beats Production `f1_fraud` by ≥ 2%.
 * **monitor.yml** (weekly cron): Evidently drift report → artifact → dispatch
