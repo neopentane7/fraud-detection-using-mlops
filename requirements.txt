@@ -2,6 +2,9 @@
 # Pinned to minor versions with .* wildcards so Dependabot can apply
 # patch-level security updates without breaking the API contract.
 dvc==3.50.*
+# dvc 3.50 imports pathspec's internal `_DIR_MARK`, removed in pathspec 1.x.
+# Pin to the 0.12 series so the resolver doesn't pull an incompatible pathspec.
+pathspec>=0.12,<1
 dvc-gdrive==3.0.*          # optional remote storage backend
 pandera==0.20.*
 xgboost==2.0.*

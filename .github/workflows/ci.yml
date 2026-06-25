@@ -38,9 +38,7 @@ jobs:
         run: pytest tests/ -v --cov=src --cov-report=xml --cov-fail-under=80
 
       - name: Validate DVC pipeline definition
-        run: |
-          pip install dvc
-          dvc dag --mermaid
+        run: dvc dag --mermaid   # dvc already installed via requirements-dev
 
       # The data-dependent stages run only when Kaggle credentials are present
       # as repo secrets. On forks/PRs without secrets, the hermetic pytest
