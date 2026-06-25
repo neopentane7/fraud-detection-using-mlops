@@ -38,7 +38,12 @@ jobs:
         if: ${{ env.KAGGLE_KEY != '' }}
         run: dvc repro
 
+      # The serving image bundles trained artifacts (models/<dataset>/threshold.json,
+      # scaler.pkl) produced by `dvc repro` above — which only runs when data/secrets
+      # are configured. So the build+deploy path is gated on the same condition;
+      # without secrets the CD job is a clean no-op (checkout + deps) that passes.
       - name: Build API image
+        if: ${{ env.KAGGLE_KEY != '' }}
         run: docker build -f api/Dockerfile -t "$IMAGE_NAME:${{ github.sha }}" .
 
       - name: Integration test against running container
@@ -53,6 +58,7 @@ jobs:
         run: python scripts/promote_model.py --promote staging-to-prod
 
       - name: Log in to GitHub Container Registry
+        if: ${{ env.KAGGLE_KEY != '' }}
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -60,6 +66,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push image to GHCR
+        if: ${{ env.KAGGLE_KEY != '' }}
         run: |
           docker tag "$IMAGE_NAME:${{ github.sha }}" "$IMAGE_NAME:latest"
           docker push "$IMAGE_NAME:${{ github.sha }}"
