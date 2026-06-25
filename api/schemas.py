@@ -9,11 +9,11 @@ OpenAPI docs, client codegen, and validation all see a precise contract.
 from __future__ import annotations
 
 import math
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-_EXAMPLE = {
+_EXAMPLE: dict[str, Any] = {
     "Time": 406.0,
     "Amount": 0.0,
     **{f"V{i}": 0.0 for i in range(1, 29)},

@@ -35,7 +35,7 @@ _T = TypeVar("_T")
 
 def _from_dict(cls: type[_T], data: dict[str, Any]) -> _T:
     """Build a dataclass from ``data``, ignoring unexpected keys defensively."""
-    known = {f.name for f in fields(cls)}
+    known = {f.name for f in fields(cls)}  # type: ignore[arg-type]  # cls is a dataclass
     return cls(**{k: v for k, v in data.items() if k in known})
 
 

@@ -320,7 +320,7 @@ def train(cfg: Config) -> str:
 
     mlflow.set_experiment(EXPERIMENT_NAME)
     with mlflow.start_run() as run, tempfile.TemporaryDirectory() as tmp:
-        run_id = run.info.run_id
+        run_id = str(run.info.run_id)
         artifact_dir = Path(tmp)
 
         train_cfg = apply_train_overrides(cfg.train, y_train)

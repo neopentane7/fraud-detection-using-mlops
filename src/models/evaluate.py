@@ -22,6 +22,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any, TypeAlias
 
 import mlflow
 import numpy as np
@@ -51,6 +52,10 @@ from src.models.predict import classify
 
 # Persisted by train.py so evaluate can locate the exact run it produced.
 RUN_INFO_PATH: Path = MODELS_DIR / "run_info.json"
+
+# MLflow-loaded models are untyped third-party objects; alias keeps mypy happy
+# (calling .predict) without tripping ruff's bare-Any rule.
+Model: TypeAlias = Any
 
 # Hard benchmark gate for the holdout/test set, **per active dataset** (from
 # params.yaml). For the fraud profile these are calibrated from 5-seed/5-fold
@@ -126,7 +131,7 @@ def _resolve_challenger_uri() -> str:
     return f"models:/{REGISTERED_MODEL_NAME}/{latest.version}"
 
 
-def _load_production_model() -> object | None:
+def _load_production_model() -> Model | None:
     """Load the current Production model, or ``None`` if none is registered."""
     try:
         return mlflow.pyfunc.load_model(f"models:/{REGISTERED_MODEL_NAME}/Production")
@@ -134,7 +139,7 @@ def _load_production_model() -> object | None:
         return None
 
 
-def _score(model: object, frame: pd.DataFrame, threshold: float) -> dict[str, float]:
+def _score(model: Model, frame: pd.DataFrame, threshold: float) -> dict[str, float]:
     """Score a loaded pyfunc model on a feature/target frame."""
     probs = np.asarray(model.predict(frame[list(FEATURE_COLUMNS)]))
     return compute_metrics(frame[TARGET_COLUMN], probs, threshold)

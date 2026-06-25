@@ -46,7 +46,7 @@ class FraudProbaModel(mlflow.pyfunc.PythonModel):
             1-D array of fraud probabilities in ``[0, 1]``.
         """
         frame = ensure_feature_order(model_input)
-        return self._model.predict_proba(frame)[:, 1]
+        return np.asarray(self._model.predict_proba(frame)[:, 1])
 
 
 def ensure_feature_order(frame: pd.DataFrame) -> pd.DataFrame:

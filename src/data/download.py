@@ -106,7 +106,8 @@ def verify_dataset(path: Path = RAW_DATA_PATH) -> int:
     if not path.exists():
         raise FileNotFoundError(f"Expected dataset at {path}, but it was not found.")
     frame = pd.read_csv(path)
-    n_rows, n_cols = frame.shape
+    n_rows = int(len(frame))
+    n_cols = int(frame.shape[1])
     if n_rows < MIN_ROWS:
         raise ValueError(
             f"Dataset has only {n_rows} rows (< {MIN_ROWS}); download likely corrupt."

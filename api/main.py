@@ -26,7 +26,7 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 import mlflow
 import pandas as pd
@@ -50,6 +50,7 @@ HIGH_RISK_PROBABILITY = 0.80  # above this, attach SHAP explanation if enabled
 # The loaded MLflow pyfunc model is intentionally opaque (no public stub); the
 # ASGI middleware callable has a fixed request/response signature.
 Model: TypeAlias = Any
+Scaler: TypeAlias = Any  # fitted sklearn transformer (untyped third-party object)
 CallNext: TypeAlias = Callable[[Request], Awaitable[Response]]
 
 # --- Mutable serving state populated at startup -----------------------------
@@ -61,7 +62,7 @@ def _load_threshold(path: Path = THRESHOLD_PATH) -> float:
     return float(json.loads(path.read_text(encoding="utf-8"))["threshold"])
 
 
-def _load_scaler(path: Path = SCALER_PATH) -> object | None:
+def _load_scaler(path: Path = SCALER_PATH) -> Scaler | None:
     """Load the fitted feature scaler, or ``None`` if it is unavailable.
 
     The model was trained on scaled ``Time``/``Amount``; the API receives raw
@@ -104,7 +105,7 @@ def _resolve_version(model_name: str, model_stage: str) -> str:
     try:
         client = mlflow.tracking.MlflowClient()
         versions = client.get_latest_versions(model_name, stages=[model_stage])
-        return versions[0].version if versions else "unknown"
+        return str(versions[0].version) if versions else "unknown"
     except Exception:  # noqa: BLE001
         return "unknown"
 
@@ -186,7 +187,9 @@ def _score_frame(
 async def health() -> HealthResponse:
     """Liveness/readiness probe reporting loaded-model identity."""
     info = STATE["info"]
-    status = "healthy" if STATE["model"] is not None else "degraded"
+    status: Literal["healthy", "degraded"] = (
+        "healthy" if STATE["model"] is not None else "degraded"
+    )
     return HealthResponse(
         status=status,
         model_name=info.get("name", "unknown"),

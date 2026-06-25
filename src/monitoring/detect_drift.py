@@ -78,11 +78,7 @@ def generate_drift_report(
     from evidently.report import Report
 
     reference = pd.read_parquet(reference_path)[list(FEATURE_COLUMNS)]
-    current = (
-        pd.read_parquet(current_path)[list(FEATURE_COLUMNS)]
-        if current_path.suffix == ".parquet"
-        else current_path
-    )
+    current = pd.read_parquet(current_path)[list(FEATURE_COLUMNS)]
 
     output_dir.mkdir(parents=True, exist_ok=True)
     report = Report(metrics=[DataDriftPreset()])
@@ -109,7 +105,7 @@ def generate_drift_report(
 
 def make_retrain_decision(drift_result: dict[str, Any], cfg: Config) -> bool:
     """Return True if drift share exceeds the configured retrain threshold."""
-    return drift_result["drift_share"] > cfg.monitoring.drift_threshold
+    return float(drift_result["drift_share"]) > cfg.monitoring.drift_threshold
 
 
 def _write_summary(
