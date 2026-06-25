@@ -19,6 +19,7 @@ jobs:
     env:
       KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
       KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+      PYTHONPATH: ${{ github.workspace }}  # so `python src/...` / dvc can import src
     steps:
       - uses: actions/checkout@v4
 
@@ -35,21 +36,27 @@ jobs:
         if: ${{ env.KAGGLE_KEY != '' }}
         run: dvc repro preprocess
 
+      # Drift detection needs the processed reference/test parquet produced by
+      # the gated preprocess step above, so it only runs when secrets/data are
+      # available. Without them the job is a clean no-op that passes.
       - name: Generate drift report
+        if: ${{ env.KAGGLE_KEY != '' }}
         run: |
           if [ "${{ github.event.inputs.simulate_drift }}" = "true" ]; then
-            python src/monitoring/detect_drift.py --simulate-drift
+            python -m src.monitoring.detect_drift --simulate-drift
           else
-            python src/monitoring/detect_drift.py
+            python -m src.monitoring.detect_drift
           fi
 
       - name: Upload drift report artifact
+        if: ${{ env.KAGGLE_KEY != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: drift-report
           path: monitoring/reports/
 
       - name: Trigger retrain if drift exceeds threshold
+        if: ${{ env.KAGGLE_KEY != '' }}
         uses: actions/github-script@v7
         with:
           script: |

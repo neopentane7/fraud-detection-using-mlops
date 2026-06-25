@@ -16,6 +16,7 @@ jobs:
       # Exposed for `if:` gating; empty string on forks/PRs without secrets.
       KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
       KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+      PYTHONPATH: ${{ github.workspace }}  # so dvc-run `python src/...` can import src
     steps:
       - uses: actions/checkout@v4
 

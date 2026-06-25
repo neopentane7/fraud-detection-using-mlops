@@ -24,6 +24,7 @@ jobs:
       KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
       KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
       MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+      PYTHONPATH: ${{ github.workspace }}  # so dvc-run scripts / promote_model import src
     steps:
       - uses: actions/checkout@v4
 
