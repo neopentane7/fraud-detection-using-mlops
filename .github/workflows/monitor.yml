@@ -1,0 +1,70 @@
+name: Monitor Drift
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # every Monday 09:00 UTC
+  workflow_dispatch:
+    inputs:
+      simulate_drift:
+        description: "Inject synthetic drift for a dry-run"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    env:
+      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Materialise reference + test data
+        if: ${{ env.KAGGLE_KEY != '' }}
+        run: dvc repro preprocess
+
+      - name: Generate drift report
+        run: |
+          if [ "${{ github.event.inputs.simulate_drift }}" = "true" ]; then
+            python src/monitoring/detect_drift.py --simulate-drift
+          else
+            python src/monitoring/detect_drift.py
+          fi
+
+      - name: Upload drift report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report
+          path: monitoring/reports/
+
+      - name: Trigger retrain if drift exceeds threshold
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = JSON.parse(
+              fs.readFileSync('monitoring/reports/drift_summary.json', 'utf8')
+            );
+            core.summary.addRaw(`Drift share: ${summary.drift_share}, decision: ${summary.decision}`);
+            await core.summary.write();
+            if (summary.decision === 'retrain') {
+              await github.rest.repos.createDispatchEvent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                event_type: 'drift-retrain',
+                client_payload: { drift_share: summary.drift_share },
+              });
+              core.notice('Drift exceeded threshold; dispatched drift-retrain.');
+            }

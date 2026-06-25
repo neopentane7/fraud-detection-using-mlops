@@ -1,0 +1,4 @@
+# Patterns DVC should ignore when computing stage hashes.
+*.pyc
+__pycache__/
+.pytest_cache/

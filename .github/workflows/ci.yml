@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  test-and-validate:
+    runs-on: ubuntu-latest
+    env:
+      # Exposed for `if:` gating; empty string on forks/PRs without secrets.
+      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check src/ tests/ api/
+
+      - name: Type-check (mypy)
+        run: mypy src/ api/
+
+      - name: Run tests with coverage gate (>= 80%)
+        run: pytest tests/ -v --cov=src --cov-report=xml --cov-fail-under=80
+
+      - name: Validate DVC pipeline definition
+        run: |
+          pip install dvc
+          dvc dag --mermaid
+
+      # The data-dependent stages run only when Kaggle credentials are present
+      # as repo secrets. On forks/PRs without secrets, the hermetic pytest
+      # suite above already exercises the validate/preprocess/train logic.
+      - name: Reproduce pipeline (quick train) [secrets only]
+        if: ${{ env.KAGGLE_KEY != '' }}
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          dvc repro validate
+          dvc repro preprocess
+          dvc exp run --set-param train.n_estimators=50 train
+
+      - name: Enforce minimum f1_fraud on quick train [secrets only]
+        if: ${{ env.KAGGLE_KEY != '' }}
+        env:
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          python -c "import json,sys; m=json.load(open('metrics/train_metrics.json')); f1=m['f1_fraud']; print('f1_fraud=',f1); sys.exit(0 if f1>=0.75 else 1)"
+
+      - name: Post metrics summary as PR comment [secrets only]
+        if: ${{ env.KAGGLE_KEY != '' && github.event_name == 'pull_request' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const m = JSON.parse(fs.readFileSync('metrics/train_metrics.json', 'utf8'));
+            const body = [
+              '### CI training metrics (quick run)',
+              '',
+              '| metric | value |',
+              '| --- | --- |',
+              ...Object.entries(m).map(([k, v]) => `| ${k} | ${Number(v).toFixed ? Number(v).toFixed(4) : v} |`),
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });

@@ -1,0 +1,66 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/fraud-api
+
+jobs:
+  train-and-deploy:
+    runs-on: ubuntu-latest
+    # Full deployment requires Kaggle data + a tracking server; runs on main
+    # only when credentials are configured as repository secrets.
+    if: ${{ github.repository_owner != '' }}
+    env:
+      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+      MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Full pipeline reproduction (registers model -> Staging)
+        if: ${{ env.KAGGLE_KEY != '' }}
+        run: dvc repro
+
+      - name: Build API image
+        run: docker build -f api/Dockerfile -t "$IMAGE_NAME:${{ github.sha }}" .
+
+      - name: Integration test against running container
+        if: ${{ env.KAGGLE_KEY != '' }}
+        run: |
+          docker compose up -d
+          python scripts/integration_test.py
+          docker compose down
+
+      - name: Promote Staging -> Production
+        if: ${{ env.KAGGLE_KEY != '' }}
+        run: python scripts/promote_model.py --promote staging-to-prod
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image to GHCR
+        run: |
+          docker tag "$IMAGE_NAME:${{ github.sha }}" "$IMAGE_NAME:latest"
+          docker push "$IMAGE_NAME:${{ github.sha }}"
+          docker push "$IMAGE_NAME:latest"
