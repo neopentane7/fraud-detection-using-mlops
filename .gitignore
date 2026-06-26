@@ -28,7 +28,7 @@ kaggle.json
 
 # MLflow local backend + artifacts
 mlruns/
-mlflow.db
+mlflow*.db
 mlartifacts/
 
 # Generated reports / metrics artifacts

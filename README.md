@@ -187,6 +187,11 @@ than missing real distribution shift in fraud.
 
 ## CI/CD (GitHub Actions)
 
+* **e2e.yml** (every push/PR): runs the **whole MLOps loop for real, no secrets**
+  — validate → preprocess → train → **register + promote in a local SQLite MLflow
+  registry** → serve via FastAPI → live `POST /predict` — on a tiny synthetic
+  dataset (the isolated `e2e` profile). Driver: [scripts/e2e_smoke.py](scripts/e2e_smoke.py).
+  A genuine end-to-end run, not a no-op.
 * **ci.yml** (PRs): ruff + mypy + pytest (coverage ≥ 80%), DVC DAG validation;
   with secrets, a quick train + `f1_fraud` gate + metrics PR comment.
 * **cd.yml** (manual dispatch): full `dvc repro` → register to Staging → build

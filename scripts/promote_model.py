@@ -37,7 +37,7 @@ def _latest_version(stage: str) -> str | None:
     try:
         versions = _client().get_latest_versions(REGISTERED_MODEL_NAME, stages=[stage])
     except MlflowException as exc:
-        print(f"[promote] Registry unavailable / '{REGISTERED_MODEL_NAME}' not found: {exc}")
+        print(f"[promote] registry unavailable / model not registered: {exc}")
         return None
     return versions[0].version if versions else None
 

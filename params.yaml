@@ -41,6 +41,26 @@ data:
       openml_data_id: 42477
       kaggle_dataset: ""
 
+    # Tiny synthetic profile used only by the CI end-to-end smoke
+    # (scripts/e2e_smoke.py): it runs the whole loop — validate -> preprocess ->
+    # train -> register -> promote -> serve -> /predict — fast, with no secrets,
+    # isolated under its own namespace. Benchmark gate is disabled (a smoke
+    # checks the *plumbing*, not model quality).
+    e2e:
+      raw_filename: e2e_smoke.csv
+      target: Class
+      feature_spec: { base: [Time, Amount], v_range: 28 }
+      scaled_columns: [Time, Amount]
+      non_negative_columns: [Time, Amount]
+      min_rows: 1000
+      pos_rate: [0.005, 0.10]
+      experiment_name: e2e-smoke
+      model_name: e2e-smoke-clf
+      benchmarks: { roc_auc: 0.0, avg_precision: 0.0, recall_fraud: 0.0, precision_fraud: 0.0 }
+      train_overrides: { min_recall: 0.80 }
+      source: synthetic
+      kaggle_dataset: ""
+
 preprocess:
   test_size: 0.15
   val_size: 0.15

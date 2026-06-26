@@ -238,9 +238,18 @@ def log_plots(
     _save_confusion_matrix(y_val, y_pred, cm_path)
     _save_pr_curve(y_val, probs, threshold, pr_path)
     _save_roc_curve(y_val, probs, roc_path)
-    _save_shap_summary(model, x_val, shap_path)
 
-    for path in (cm_path, pr_path, roc_path, shap_path):
+    artifacts = [cm_path, pr_path, roc_path]
+    # SHAP's TreeExplainer is brittle across shap/xgboost version combos; a
+    # missing explainability *plot* must never abort a training run, so it is
+    # best-effort and logged only if it succeeds.
+    try:
+        _save_shap_summary(model, x_val, shap_path)
+        artifacts.append(shap_path)
+    except Exception as exc:  # noqa: BLE001 - artifact generation is non-critical
+        print(f"[train] SHAP summary skipped ({type(exc).__name__}: {exc})")
+
+    for path in artifacts:
         mlflow.log_artifact(str(path))
 
 
@@ -280,13 +289,10 @@ def maybe_promote_to_staging(run_id: str, f1_fraud: float, cfg: Config) -> None:
         print(f"[Gate] f1_fraud={f1_fraud:.4f} < {target} — not promoting")
         return
     try:
-        client = mlflow.tracking.MlflowClient()
-        mv = client.create_model_version(
-            name=REGISTERED_MODEL_NAME,
-            source=f"runs:/{run_id}/model",
-            run_id=run_id,
-        )
-        client.transition_model_version_stage(
+        # register_model creates the registered model if it doesn't exist yet
+        # (create_model_version alone errors on a fresh registry).
+        mv = mlflow.register_model(f"runs:/{run_id}/model", REGISTERED_MODEL_NAME)
+        mlflow.tracking.MlflowClient().transition_model_version_stage(
             name=REGISTERED_MODEL_NAME, version=mv.version, stage="Staging"
         )
         print(f"[Gate] Promoted model v{mv.version} to Staging")
