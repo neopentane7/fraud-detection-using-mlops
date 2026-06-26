@@ -34,20 +34,26 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      # The retrain-and-promote loop needs a real MLflow tracking server (a file
+      # store has no model registry, so nothing can be promoted). It therefore
+      # runs only when MLFLOW_TRACKING_URI is configured; otherwise the job is a
+      # clean no-op that passes.
       - name: Reproduce pipeline from preprocess onwards
+        if: ${{ env.MLFLOW_TRACKING_URI != '' }}
         run: dvc repro preprocess train evaluate
 
       - name: Compare challenger vs Production and promote if it wins by >= 2%
+        if: ${{ env.MLFLOW_TRACKING_URI != '' }}
         run: python scripts/promote_model.py --compare --min-delta 0.02
 
       - name: Write run summary
-        if: always()
+        if: ${{ env.MLFLOW_TRACKING_URI != '' }}
         run: |
           {
             echo "## Retrain summary"
             echo "Trigger: ${{ github.event.inputs.reason || github.event.action }}"
             echo ""
             echo '```json'
-            cat metrics/eval_metrics.json
+            cat metrics/creditcard/eval_metrics.json 2>/dev/null || echo "(no metrics produced)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

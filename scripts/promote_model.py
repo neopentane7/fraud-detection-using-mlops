@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 import mlflow
+from mlflow.exceptions import MlflowException
 
 from src.config import EVAL_METRICS_PATH, REGISTERED_MODEL_NAME
 
@@ -27,8 +28,17 @@ def _client() -> mlflow.tracking.MlflowClient:
 
 
 def _latest_version(stage: str) -> str | None:
-    """Return the latest model version in ``stage`` or None."""
-    versions = _client().get_latest_versions(REGISTERED_MODEL_NAME, stages=[stage])
+    """Return the latest model version in ``stage``, or None.
+
+    Returns None (rather than raising) when the registry is unavailable or the
+    model was never registered — e.g. a file-store backend (no registry) or a
+    fresh tracking server. Promotion is then a safe no-op.
+    """
+    try:
+        versions = _client().get_latest_versions(REGISTERED_MODEL_NAME, stages=[stage])
+    except MlflowException as exc:
+        print(f"[promote] Registry unavailable / '{REGISTERED_MODEL_NAME}' not found: {exc}")
+        return None
     return versions[0].version if versions else None
 
 
@@ -37,8 +47,10 @@ def promote_staging_to_production() -> int:
     client = _client()
     version = _latest_version("Staging")
     if version is None:
-        print("[promote] No Staging version to promote.")
-        return 1
+        # Nothing to promote (no registry, or no Staging version) — a no-op,
+        # not a failure, so it never breaks the CD/retrain workflow.
+        print("[promote] No Staging version to promote; skipping (no-op).")
+        return 0
     client.transition_model_version_stage(
         name=REGISTERED_MODEL_NAME,
         version=version,
@@ -51,6 +63,9 @@ def promote_staging_to_production() -> int:
 
 def compare_and_promote(min_delta: float) -> int:
     """Promote Staging only if it beats Production f1_fraud by >= ``min_delta``."""
+    if not EVAL_METRICS_PATH.exists():
+        print(f"[promote] No holdout metrics at {EVAL_METRICS_PATH}; skipping (no-op).")
+        return 0
     challenger_f1 = float(json.loads(EVAL_METRICS_PATH.read_text())["f1_fraud"])
     prod_version = _latest_version("Production")
     if prod_version is None:
