@@ -1,0 +1,23 @@
+.git
+.github
+.venv*
+venv
+**/__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+# Local data, models, and MLflow state are regenerated at build/startup.
+data
+models
+metrics
+mlruns
+mlartifacts
+*.db
+predictions.jsonl
+monitoring/reports
+docs/images
+.claude
+implementation_history.md

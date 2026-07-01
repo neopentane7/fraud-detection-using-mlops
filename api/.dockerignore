@@ -1,0 +1,28 @@
+# Keep the build context minimal: only api/, src/, requirements-api.txt and
+# models/threshold.json are needed by the image.
+.git/
+.github/
+.dvc/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+notebooks/
+tests/
+data/
+mlruns/
+mlflow.db
+monitoring/
+metrics/
+models/*
+!models/creditcard/
+!models/creditcard/threshold.json
+!models/creditcard/scaler.pkl
+*.md
+.env
+predictions.jsonl

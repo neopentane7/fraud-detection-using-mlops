@@ -1,0 +1,79 @@
+name: Monitor Drift
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # every Monday 09:00 UTC
+  workflow_dispatch:
+    inputs:
+      simulate_drift:
+        description: "Inject synthetic drift to demo the retrain trigger (off = real detection)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    env:
+      # Genuinely runs with NO secrets on the isolated synthetic `e2e` profile:
+      # preprocess builds a reference baseline, then Evidently compares it to
+      # simulated production traffic and emits a real drift report + decision.
+      MLOPS_DATASET: e2e
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies (pinned lock + editable package)
+        run: |
+          pip install -r requirements.lock
+          pip install -e . --no-deps
+
+      - name: Synthetic data + reference baseline (validate -> preprocess)
+        run: |
+          python scripts/make_smoke_data.py
+          python -m src.data.validate
+          python -m src.data.preprocess
+
+      # Default / weekly cron does REAL detection (reference vs a non-drifted
+      # sample -> typically "no_action", no spurious retrain). Only an explicit
+      # manual run with simulate_drift=true injects drift to demo the dispatch.
+      - name: Generate drift report (Evidently)
+        run: |
+          if [ "${{ github.event.inputs.simulate_drift }}" = "true" ]; then
+            python -m src.monitoring.detect_drift --simulate-drift
+          else
+            python -m src.monitoring.detect_drift
+          fi
+
+      - name: Upload drift report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report
+          path: monitoring/reports/
+
+      - name: Trigger retrain if drift exceeds threshold
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = JSON.parse(
+              fs.readFileSync('monitoring/reports/e2e/drift_summary.json', 'utf8')
+            );
+            core.summary.addRaw(`Drift share: ${summary.drift_share}, decision: ${summary.decision}`);
+            await core.summary.write();
+            if (summary.decision === 'retrain') {
+              await github.rest.repos.createDispatchEvent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                event_type: 'drift-retrain',
+                client_payload: { drift_share: summary.drift_share },
+              });
+              core.notice('Drift exceeded threshold; dispatched drift-retrain.');
+            }

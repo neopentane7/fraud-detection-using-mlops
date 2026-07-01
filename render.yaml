@@ -1,0 +1,10 @@
+# One-click-ish deploy of the self-contained demo to Render (free tier).
+# Render injects $PORT; the demo entrypoint binds it. See docs/deploy.md.
+services:
+  - type: web
+    name: fraud-detector-demo
+    runtime: docker
+    dockerfilePath: ./Dockerfile.demo
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true

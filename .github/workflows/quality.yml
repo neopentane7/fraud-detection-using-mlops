@@ -1,0 +1,60 @@
+name: Quality Gate
+
+# Asserts REAL model quality on REAL data with NO secrets. cc-default is on
+# OpenML (no auth required), so CI can download it and enforce the dataset's
+# published benchmark gate (roc_auc >= 0.74, avg_precision >= 0.50, recall >=
+# 0.55, precision >= 0.30). This complements the synthetic e2e smoke, which only
+# checks plumbing: here a model that regresses below the bar fails the build.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    env:
+      MLOPS_DATASET: cc-default
+      MLFLOW_TRACKING_URI: ${{ format('sqlite:///{0}/mlflow.db', github.workspace) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies (pinned lock + editable package)
+        run: |
+          pip install -r requirements.lock
+          pip install -e . --no-deps
+
+      - name: Train on real data (cc-default via OpenML, no auth)
+        run: |
+          python -m src.data.download
+          python -m src.data.validate
+          python -m src.data.preprocess
+          python -m src.models.train
+
+      - name: Enforce the real benchmark gate (fails the build on regression)
+        run: python -m src.models.evaluate --stage holdout
+
+      - name: Publish metrics to the run summary
+        if: always()
+        run: |
+          {
+            echo "## cc-default quality gate"
+            echo '```json'
+            cat metrics/cc-default/eval_metrics.json 2>/dev/null || echo "(no metrics)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

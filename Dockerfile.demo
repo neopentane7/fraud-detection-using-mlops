@@ -1,0 +1,24 @@
+# Self-contained demo image for a public deployment (e.g. Hugging Face Spaces,
+# Render). Unlike api/Dockerfile (which loads from an MLflow registry), this
+# trains a tiny synthetic model at startup and serves it locally — no tracking
+# server, no Kaggle data, no secrets. See docs/deploy.md.
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pinned deps (the dev lock covers training + serving), then the package.
+COPY requirements.lock ./
+RUN pip install --no-cache-dir -r requirements.lock
+COPY . .
+RUN pip install --no-cache-dir -e . --no-deps
+
+ENV PORT=7860
+EXPOSE 7860
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+  CMD curl -f "http://localhost:${PORT}/health" || exit 1
+
+CMD ["sh", "scripts/demo_entrypoint.sh"]

@@ -1,0 +1,57 @@
+name: Security
+
+# Dependency, code, and filesystem scanning. Findings are surfaced (Security
+# tab / job logs) without failing the build, so the scan informs rather than
+# blocks — appropriate for pinned, intentionally-older portfolio deps.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write   # CodeQL needs this to upload results
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pip-audit:
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Audit pinned dependencies
+        continue-on-error: true   # report advisories, don't block the build
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.lock --desc
+
+  codeql:
+    name: Code scanning (CodeQL)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python
+      - uses: github/codeql-action/analyze@v3
+
+  trivy:
+    name: Filesystem scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy filesystem scan
+        continue-on-error: true   # report vulnerabilities, don't block
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/repo" aquasec/trivy:latest \
+            fs --scanners vuln,secret,misconfig --severity CRITICAL,HIGH /repo

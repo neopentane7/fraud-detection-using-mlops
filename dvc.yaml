@@ -1,0 +1,73 @@
+# Paths are namespaced per dataset (data/processed/<name>, models/<name>, ...)
+# to match config.py. This canonical pipeline targets the default `creditcard`
+# profile; another dataset is run via `MLOPS_DATASET=<name>` (see README).
+stages:
+  download:
+    cmd: python src/data/download.py
+    deps:
+      - src/data/download.py
+    outs:
+      - data/raw/creditcard.csv
+
+  validate:
+    cmd: python src/data/validate.py
+    deps:
+      - src/data/validate.py
+      - data/raw/creditcard.csv
+    outs:
+      - data/validated/creditcard/validation_report.json
+
+  preprocess:
+    cmd: python src/data/preprocess.py
+    deps:
+      - src/data/preprocess.py
+      - data/raw/creditcard.csv
+      - data/validated/creditcard/validation_report.json
+    params:
+      - preprocess.test_size
+      - preprocess.val_size
+      - preprocess.random_seed
+      - preprocess.split_strategy
+      - preprocess.time_column
+    outs:
+      - data/processed/creditcard/train.parquet
+      - data/processed/creditcard/val.parquet
+      - data/processed/creditcard/test.parquet
+      - data/processed/creditcard/reference.parquet
+      - models/creditcard/scaler.pkl
+
+  train:
+    cmd: python src/models/train.py
+    deps:
+      - src/models/train.py
+      - src/models/evaluate.py
+      - data/processed/creditcard/train.parquet
+      - data/processed/creditcard/val.parquet
+    params:
+      - train.n_estimators
+      - train.max_depth
+      - train.learning_rate
+      - train.scale_pos_weight
+      - train.subsample
+      - train.colsample_bytree
+      - train.random_seed
+      - train.min_recall
+      - train.threshold_strategy
+      - train.cost_fn
+      - train.cost_fp
+      - train.calibration
+    metrics:
+      - metrics/creditcard/train_metrics.json:
+          cache: false
+    outs:
+      - models/creditcard/threshold.json
+
+  evaluate:
+    cmd: python src/models/evaluate.py --stage holdout
+    deps:
+      - src/models/evaluate.py
+      - data/processed/creditcard/test.parquet
+      - models/creditcard/threshold.json
+    metrics:
+      - metrics/creditcard/eval_metrics.json:
+          cache: false

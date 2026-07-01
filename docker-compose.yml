@@ -1,0 +1,41 @@
+services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.13.0
+    container_name: fraud-mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/mlruns
+      - ./mlflow.db:/mlflow.db
+    # --serve-artifacts proxies model artifacts over HTTP so the api container
+    # (which only talks to the tracking server, not the artifact store) can load
+    # models:/.../Production without sharing a filesystem path.
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:///mlflow.db
+      --artifacts-destination /mlruns
+      --serve-artifacts
+      --host 0.0.0.0
+      --port 5000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:5000/health'); sys.exit(0)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: fraud-api
+    ports:
+      - "8000:8000"
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MODEL_NAME=fraud-detector
+      - MODEL_STAGE=Production
+    volumes:
+      - ./models:/app/models:ro

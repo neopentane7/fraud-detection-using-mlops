@@ -1,0 +1,120 @@
+name: CD (Continuous Delivery)
+
+# Continuous *Delivery* (not Deployment): the build->gate->scan->test->publish
+# path is automated and runs with NO secrets (local MLflow server + synthetic
+# `e2e` profile); releasing the verified candidate to the `:latest` production
+# tag is gated behind a MANUAL APPROVAL via the `production` GitHub Environment.
+#
+# Set the gate up once in repo Settings -> Environments -> `production` ->
+# "Required reviewers". Without that rule the release job still runs (no gate);
+# with it, a human must approve before the image is promoted to production.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/fraud-api
+
+jobs:
+  # Stage 1 — fully automated: train, gate on the holdout benchmark, build the
+  # image, scan it, integration-test the running container, publish a versioned
+  # CANDIDATE (:<sha>). Nothing here touches the production tag.
+  build-verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      MLFLOW_TRACKING_URI: http://localhost:5000
+      MLOPS_DATASET: e2e
+      MODEL_NAME: e2e-smoke-clf
+      MODEL_STAGE: Staging   # the candidate train() registers; prod is the release gate's job
+      MLFLOW_SERVER_ALLOWED_HOSTS: "*"  # let the container past the DNS-rebind check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies (pinned lock + editable package)
+        run: |
+          pip install -r requirements.lock
+          pip install -e . --no-deps
+
+      - name: Start MLflow tracking server (SQLite + served artifacts)
+        run: |
+          mlflow server \
+            --backend-store-uri "sqlite:///${GITHUB_WORKSPACE}/mlflow.db" \
+            --artifacts-destination "${GITHUB_WORKSPACE}/mlartifacts" \
+            --serve-artifacts --host 127.0.0.1 --port 5000 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:5000/health && break || sleep 2
+          done
+
+      - name: Train + gate on the holdout benchmark
+        run: |
+          python scripts/make_smoke_data.py
+          python -m src.data.validate
+          python -m src.data.preprocess
+          python -m src.models.train
+          python -m src.models.evaluate --stage holdout   # fails the build on a quality regression
+
+      - name: Build API image (candidate)
+        run: docker build -f api/Dockerfile --build-arg DATASET=e2e -t "$IMAGE_NAME:${{ github.sha }}" .
+
+      - name: Scan the built image (Trivy) — block on fixable CRITICALs
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image --severity CRITICAL --ignore-unfixed \
+            --exit-code 1 "$IMAGE_NAME:${{ github.sha }}"
+
+      - name: Integration test against the running container
+        run: |
+          docker run -d --name fraud-api --network host \
+            -e MLFLOW_TRACKING_URI=http://localhost:5000 \
+            -e MLOPS_DATASET=e2e -e MODEL_NAME=e2e-smoke-clf -e MODEL_STAGE=Staging \
+            "$IMAGE_NAME:${{ github.sha }}"
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8000/health && break || sleep 2
+          done
+          python scripts/integration_test.py
+          docker logs fraud-api
+          docker rm -f fraud-api
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish the candidate (versioned by commit SHA)
+        run: docker push "$IMAGE_NAME:${{ github.sha }}"
+
+  # Stage 2 — gated: promote the already-verified candidate to the production
+  # `:latest` tag. The `production` environment supplies the manual-approval gate.
+  release-production:
+    needs: build-verify
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote candidate -> production (:latest)
+        run: |
+          docker pull "$IMAGE_NAME:${{ github.sha }}"
+          docker tag "$IMAGE_NAME:${{ github.sha }}" "$IMAGE_NAME:latest"
+          docker push "$IMAGE_NAME:latest"

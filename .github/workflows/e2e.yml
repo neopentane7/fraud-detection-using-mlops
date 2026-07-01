@@ -1,0 +1,38 @@
+name: E2E Smoke
+
+# Runs the FULL MLOps loop for real — train -> register -> promote -> serve ->
+# /predict — on a tiny synthetic dataset with a local SQLite MLflow registry.
+# No secrets, no external data: a genuine end-to-end run, not a no-op.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps (pinned lock + editable package)
+        run: |
+          pip install -r requirements.lock
+          pip install -e . --no-deps
+
+      - name: End-to-end smoke (train -> register -> promote -> serve -> /predict)
+        run: python scripts/e2e_smoke.py

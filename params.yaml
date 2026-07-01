@@ -1,0 +1,133 @@
+# Active dataset schema + acquisition. Switch datasets with the MLOPS_DATASET
+# env var (falls back to data.active). Outputs are namespaced per dataset, so
+# the same validate->preprocess->train->evaluate code runs on any profile here.
+data:
+  active: creditcard
+  datasets:
+    creditcard:
+      raw_filename: creditcard.csv
+      target: Class
+      feature_spec: { base: [Time, Amount], v_range: 28 }  # Time, Amount, V1..V28
+      scaled_columns: [Time, Amount]
+      non_negative_columns: [Time, Amount]
+      min_rows: 200000
+      pos_rate: [0.0005, 0.05]
+      experiment_name: fraud-detection
+      model_name: fraud-detector
+      benchmarks: { roc_auc: 0.96, avg_precision: 0.80, recall_fraud: 0.78, precision_fraud: 0.60 }
+      source: kaggle-or-openml
+      openml_data_id: 42175
+      kaggle_dataset: mlg-ulb/creditcardfraud
+
+    # Second organic dataset (credit-card default prediction, Yeh & Lien 2009).
+    # Demonstrates the pipeline on a different schema + imbalance regime (~3.5:1).
+    cc-default:
+      raw_filename: cc_default.csv
+      target: Class
+      feature_columns: [x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12,
+                        x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23]
+      scaled_columns: all
+      non_negative_columns: []
+      min_rows: 25000
+      pos_rate: [0.05, 0.5]
+      experiment_name: cc-default
+      model_name: cc-default-clf
+      # Realistic gate for this harder, lower-signal problem (published ROC ~0.77).
+      benchmarks: { roc_auc: 0.74, avg_precision: 0.50, recall_fraud: 0.55, precision_fraud: 0.30 }
+      # Per-dataset hyperparameter overrides: imbalance weight computed from the
+      # data (~3.5:1, not the fraud set's 24), and a lower recall floor.
+      # performance_threshold (Staging-promotion f1 floor) lowered for this
+      # lower-signal problem: its realistic f1 ~0.52 clears its own holdout gate
+      # but not the global 0.74, so the promotion bar is set to match.
+      train_overrides: { scale_pos_weight: auto, min_recall: 0.65, performance_threshold: 0.45 }
+      source: openml
+      openml_data_id: 42477
+      kaggle_dataset: ""
+
+    # Third organic dataset: Elliptic Bitcoin (real on-chain transactions
+    # labelled illicit/licit). Ships as separate feature + class files; the
+    # "elliptic" assembler joins them, keeps labelled nodes, and maps
+    # illicit->1 / licit->0. 165 anonymised numeric features (f1..f165).
+    # benchmarks start at 0 and are tightened after the first run.
+    elliptic:
+      raw_filename: elliptic.csv
+      target: class
+      feature_spec: { prefix: f, count: 165 }
+      scaled_columns: all
+      non_negative_columns: []
+      min_rows: 40000
+      pos_rate: [0.05, 0.20]
+      experiment_name: elliptic
+      model_name: elliptic-clf
+      benchmarks: { roc_auc: 0.95, avg_precision: 0.90, recall_fraud: 0.60, precision_fraud: 0.80 }
+      train_overrides: { scale_pos_weight: auto, min_recall: 0.65 }
+      source: kaggle
+      kaggle_dataset: ellipticco/elliptic-data-set
+      kaggle_assembler: elliptic
+
+    # Tiny synthetic profile used only by the CI end-to-end smoke
+    # (scripts/e2e_smoke.py): it runs the whole loop — validate -> preprocess ->
+    # train -> register -> promote -> serve -> /predict — fast, with no secrets,
+    # isolated under its own namespace. Benchmark gate is disabled (a smoke
+    # checks the *plumbing*, not model quality).
+    e2e:
+      raw_filename: e2e_smoke.csv
+      target: Class
+      feature_spec: { base: [Time, Amount], v_range: 28 }
+      scaled_columns: [Time, Amount]
+      non_negative_columns: [Time, Amount]
+      min_rows: 1000
+      pos_rate: [0.005, 0.10]
+      experiment_name: e2e-smoke
+      model_name: e2e-smoke-clf
+      benchmarks: { roc_auc: 0.0, avg_precision: 0.0, recall_fraud: 0.0, precision_fraud: 0.0 }
+      train_overrides: { min_recall: 0.80 }
+      source: synthetic
+      kaggle_dataset: ""
+
+preprocess:
+  test_size: 0.15
+  val_size: 0.15
+  random_seed: 42
+  # "stratified" (default; comparable to the published random-split benchmarks)
+  # or "temporal" — chronological by time_column, a stricter no-leakage eval that
+  # falls back to stratified when the column is absent (cc-default).
+  split_strategy: stratified
+  time_column: Time
+
+train:
+  # Values tuned via 5-fold stratified CV on the real (deduplicated) dataset.
+  # Shallower trees + more estimators generalise better than the naive
+  # 300/depth-6, and a moderate scale_pos_weight (~sqrt of the 577:1 ratio)
+  # keeps probabilities better calibrated without losing PR-AUC.
+  n_estimators: 400
+  max_depth: 4
+  learning_rate: 0.05
+  scale_pos_weight: 24
+  subsample: 0.8
+  colsample_bytree: 0.8
+  random_seed: 42
+  min_recall: 0.85          # recall floor for threshold selection (see config.py)
+  # Decision-threshold objective: "recall" (default) or "cost" (minimise
+  # cost_fn*FN + cost_fp*FP — fraud's asymmetric error costs).
+  threshold_strategy: recall
+  cost_fn: 10.0             # relative cost of a missed fraud
+  cost_fp: 1.0             # relative cost of a false alarm
+  # Probability calibration fit on validation: "none" or "isotonic".
+  calibration: none
+
+monitoring:
+  drift_threshold: 0.30        # share of drifted features that triggers retraining
+  # Global minimum f1_fraud for promotion to Staging (the default Staging bar).
+  # Per-dataset profiles override it via train_overrides.performance_threshold so
+  # the bar matches each dataset's realistic f1 (e.g. cc-default uses 0.45). Set
+  # below the naive 0.82 because recall-first thresholding trades precision (and
+  # thus F1) to catch more fraud; real fraud-data F1 sits around 0.75.
+  performance_threshold: 0.74
+
+serving:
+  host: 0.0.0.0
+  port: 8000
+  mlflow_tracking_uri: http://localhost:5000
+  model_name: fraud-detector
+  model_stage: Production

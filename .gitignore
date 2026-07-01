@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+
+# Secrets / environment
+.env
+kaggle.json
+
+# DVC-tracked data + model outputs (tracked by DVC, never by git)
+/data/raw/*
+/data/processed/*
+/data/validated/*
+/data/reference/*
+/models/*
+!**/.gitkeep
+# Keep DVC pointer files
+!*.dvc
+
+# MLflow local backend + artifacts
+mlruns/
+mlflow*.db
+mlartifacts/
+
+# Generated reports / metrics artifacts
+monitoring/reports/*.html
+monitoring/reports/*.json
+predictions.jsonl
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Claude Code local agent config
+.claude/
+
+# Personal/working docs — kept locally, excluded from the public repo
+implementation_history.md
+docs/concepts.md

@@ -1,0 +1,69 @@
+name: Retrain
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why retraining was triggered"
+        required: false
+        default: "manual"
+  # Triggered programmatically by the monitor workflow on drift.
+  repository_dispatch:
+    types: [drift-retrain]
+
+permissions:
+  contents: read
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    env:
+      # Genuinely runs with NO secrets: a local SQLite MLflow registry (which,
+      # unlike a file store, supports model versions + stages) and the isolated
+      # synthetic `e2e` profile. If a real tracking server is configured via the
+      # secret, it is used instead — same code path, real infrastructure.
+      MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI || format('sqlite:///{0}/mlflow.db', github.workspace) }}
+      MLOPS_DATASET: e2e
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies (pinned lock + editable package)
+        run: |
+          pip install -r requirements.lock
+          pip install -e . --no-deps
+
+      - name: Synthetic training data (no network)
+        run: python scripts/make_smoke_data.py
+
+      - name: Retrain challenger (validate -> preprocess -> train -> evaluate)
+        run: |
+          python -m src.data.validate
+          python -m src.data.preprocess
+          python -m src.models.train
+          python -m src.models.evaluate --stage holdout
+
+      # Promote only if the challenger beats the Production champion by >= 2%.
+      # NOTE: a CI run starts from a fresh SQLite registry with no champion, so
+      # this promotes unconditionally here; the >= delta comparison branch runs
+      # against a persistent registry (production) and is covered by
+      # tests/test_promote.py.
+      - name: Compare challenger vs Production and promote if it wins by >= 2%
+        run: python scripts/promote_model.py --compare --min-delta 0.02
+
+      - name: Write run summary
+        if: always()
+        run: |
+          {
+            echo "## Retrain summary"
+            echo "Trigger: ${{ github.event.inputs.reason || github.event.action }}"
+            echo ""
+            echo '```json'
+            cat metrics/e2e/eval_metrics.json 2>/dev/null || echo "(no metrics produced)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
